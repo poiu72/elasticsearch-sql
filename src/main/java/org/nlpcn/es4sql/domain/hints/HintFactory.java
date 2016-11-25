@@ -1,7 +1,8 @@
 package org.nlpcn.es4sql.domain.hints;
 
-import org.elasticsearch.common.jackson.dataformat.yaml.YAMLFactory;
-import org.elasticsearch.common.jackson.dataformat.yaml.YAMLParser;
+
+import com.fasterxml.jackson.dataformat.yaml.YAMLFactory;
+import com.fasterxml.jackson.dataformat.yaml.YAMLParser;
 import org.elasticsearch.common.xcontent.yaml.YamlXContentParser;
 import org.nlpcn.es4sql.exception.SqlParseException;
 
@@ -19,6 +20,22 @@ public class HintFactory {
         if(hintAsString.startsWith("! USE_NESTED_LOOPS") || hintAsString.startsWith("! USE_NL")){
             return new Hint(HintType.USE_NESTED_LOOPS,null);
         }
+
+        if(hintAsString.startsWith("! SHARD_SIZE")){
+            String[] numbers =  getParamsFromHint(hintAsString, "! SHARD_SIZE");
+            //todo: check if numbers etc..
+            List<Object> params = new ArrayList<>();
+            for (String number : numbers){
+                if(number.equals("null") || number.equals("infinity")){
+                    params.add(null);
+                }
+                else {
+                    params.add(Integer.parseInt(number));
+                }
+            }
+            return new Hint(HintType.SHARD_SIZE,params.toArray());
+        }
+
         if(hintAsString.equals("! HASH_WITH_TERMS_FILTER"))
             return new Hint(HintType.HASH_WITH_TERMS_FILTER,null);
         if(hintAsString.startsWith("! JOIN_TABLES_LIMIT")){
@@ -56,10 +73,8 @@ public class HintFactory {
             return new Hint(HintType.IGNORE_UNAVAILABLE,null);
         }
         if(hintAsString.startsWith("! DOCS_WITH_AGGREGATION")) {
-            String[] number = getParamsFromHint(hintAsString,"! DOCS_WITH_AGGREGATION");
-            //todo: check if numbers etc..
-            int docsWithAggregation = Integer.parseInt(number[0]);
-            return new Hint(HintType.DOCS_WITH_AGGREGATION,new Object[]{docsWithAggregation});
+            Integer[] params = parseParamsAsInts(hintAsString,"! DOCS_WITH_AGGREGATION");
+            return new Hint(HintType.DOCS_WITH_AGGREGATION, params);
         }
         if(hintAsString.startsWith("! ROUTINGS")) {
             String[] routings = getParamsFromHint(hintAsString,"! ROUTINGS");
@@ -91,6 +106,40 @@ public class HintFactory {
             }
             return new Hint(HintType.HIGHLIGHT,hintParams.toArray());
         }
+        if(hintAsString.startsWith("! MINUS_SCROLL_FETCH_AND_RESULT_LIMITS")){
+            Integer[] params = parseParamsAsInts(hintAsString,"! MINUS_SCROLL_FETCH_AND_RESULT_LIMITS");
+            if( params.length>3){
+                throw new SqlParseException("MINUS_FETCH_AND_RESULT_LIMITS should have 3 int params (maxFromFirst,maxFromSecond,hitsPerScrollShard)");
+            }
+            Integer[] paramsWithDefaults = new Integer[3];
+            int defaultMaxFetchFromTable = 100000;
+            int defaultFetchOnScroll = 1000;
+            paramsWithDefaults[0] = defaultMaxFetchFromTable;
+            paramsWithDefaults[1] = defaultMaxFetchFromTable;
+            paramsWithDefaults[2] = defaultFetchOnScroll;
+            for(int i=0;i<params.length;i++){
+                paramsWithDefaults[i]=params[i];
+            }
+
+            return new Hint(HintType.MINUS_FETCH_AND_RESULT_LIMITS, paramsWithDefaults);
+        }
+        if(hintAsString.startsWith("! MINUS_USE_TERMS_OPTIMIZATION")){
+            String[] param = getParamsFromHint(hintAsString,"! MINUS_USE_TERMS_OPTIMIZATION");
+            boolean shouldLowerStringOnTerms = false;
+            if(param!=null ){
+                if(param.length!=1) {
+                    throw new SqlParseException("MINUS_USE_TERMS_OPTIMIZATION should have none or one boolean param: false/true ");
+                }
+                try {
+                    shouldLowerStringOnTerms = Boolean.parseBoolean(param[0].toLowerCase());
+                }
+                catch (Exception e){
+                    throw new SqlParseException("MINUS_USE_TERMS_OPTIMIZATION should have none or one boolean param: false/true , got:" + param[0]);
+                }
+            }
+            return new Hint(HintType.MINUS_USE_TERMS_OPTIMIZATION, new Object[]{shouldLowerStringOnTerms});
+        }
+
 
         return null;
     }
@@ -100,6 +149,18 @@ public class HintFactory {
         if(!hint.contains("(")) return null;
         String onlyParams = hint.replace(prefix, "").replaceAll("\\s*\\(\\s*","").replaceAll("\\s*\\,\\s*", ",").replaceAll("\\s*\\)\\s*", "");
         return onlyParams.split(",");
+    }
+    private static Integer[] parseParamsAsInts(String hintAsString,String startWith) {
+        String[] number = getParamsFromHint(hintAsString,startWith);
+        if(number == null){
+            return new Integer[0];
+        }
+        //todo: check if numbers etc..
+        Integer[] params = new Integer[number.length];
+        for (int i = 0; i < params.length; i++) {
+            params[i] = Integer.parseInt(number[i]);
+        }
+        return params;
     }
 
 
